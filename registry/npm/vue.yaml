@@ -6,3 +6,7 @@ source:
   type: git
   url: https://github.com/vuejs/docs
   docs_path: src
+  # examples/src holds the playground code fragments (App/template.html and
+  # the like); examples/index.md is the page that describes them.
+  exclude_paths:
+    - "examples/src/**"

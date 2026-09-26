@@ -242,3 +242,57 @@ describe("readLocalDocsFiles — repo-meta filenames", () => {
     expect(paths.sort()).toEqual(["docs/guide.md", "docs/security.md"]);
   });
 });
+
+describe("readLocalDocsFiles — directory filters", () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "ctx-localdirs-"));
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  const write = (rel: string, body: string): void => {
+    const full = join(dir, rel);
+    mkdirSync(join(full, ".."), { recursive: true });
+    writeFileSync(full, body);
+  };
+
+  it("skips test and example directories when scanning a repo root", () => {
+    write("README.md", "# Project\n\nContent.\n");
+    write("test/README.md", "# Test notes\n\nFixture setup.\n");
+    write("examples/basic/README.md", "# Basic example\n\nRun it.\n");
+    write("src/internal/NOTES.md", "# Internal\n\nScratch.\n");
+
+    const paths = readLocalDocsFiles(dir).map((f) => f.path);
+
+    expect(paths).toEqual(["README.md"]);
+  });
+
+  it("keeps doc sections named like non-doc directories inside a docs folder", () => {
+    write("docs/manuals/build/bake.md", "# Bake\n\nBuild with bake.\n");
+    write("docs/guides/test/bail.md", "# Bail\n\nStop after failures.\n");
+    write("docs/workers/examples/ab-testing.md", "# A/B testing\n\nSplit.\n");
+
+    const paths = readLocalDocsFiles(dir, { path: "docs" }).map((f) => f.path);
+
+    expect(paths.sort()).toEqual([
+      "docs/guides/test/bail.md",
+      "docs/manuals/build/bake.md",
+      "docs/workers/examples/ab-testing.md",
+    ]);
+  });
+
+  it("still skips tooling directories inside a docs folder", () => {
+    write("docs/guide.md", "# Guide\n\nContent.\n");
+    write("docs/node_modules/pkg/README.md", "# Dependency\n\nVendored.\n");
+    write("docs/__tests__/page.md", "# Test page\n\nFixture.\n");
+    write("docs/bench/fixtures/blog-post.html", "<h1>Fixture</h1>\n");
+
+    const paths = readLocalDocsFiles(dir, { path: "docs" }).map((f) => f.path);
+
+    expect(paths).toEqual(["docs/guide.md"]);
+  });
+});
