@@ -8,4 +8,7 @@ versions:
       type: git
       url: https://github.com/facebook/docusaurus
       docs_path: website
+      # _dogfooding/ is the site's own test pages, not documentation.
+      exclude_paths:
+        - "_dogfooding/**"
     tag_pattern: "v{version}"
