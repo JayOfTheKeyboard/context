@@ -10,4 +10,8 @@ versions:
       type: git
       url: https://github.com/angular/angular
       docs_path: adev/src/content
+      # examples/ holds the component templates and code the guides embed,
+      # not pages of their own.
+      exclude_paths:
+        - "examples/**"
     tag_pattern: "v{version}"

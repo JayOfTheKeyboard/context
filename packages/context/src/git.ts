@@ -127,32 +127,44 @@ const DOCUMENTATION_EXTENSIONS = [
 ];
 
 /**
- * Directories to ignore during markdown indexing.
- * Includes test directories, internal docs, and other non-user-facing content.
+ * Directories to ignore during markdown indexing, wherever the scan starts.
+ * Tooling and generated output: these never hold authored documentation.
  */
 const IGNORED_DIRS = new Set([
-  // Test directories
+  // Test tooling
   "__tests__",
   "__test__",
+  "fixtures",
+  "__fixtures__",
+  "__mocks__",
+  // Build/generated directories
+  "node_modules",
+  "dist",
+  "out",
+  ".next",
+  ".nuxt",
+]);
+
+/**
+ * Directories to ignore only when the scan starts at the repo root.
+ * In a code repo these hold tests, internal notes, and code samples; inside a
+ * docs folder they are ordinary sections — docker's content/manuals/build/ is
+ * the whole Docker Build manual, and bun's docs/guides/test/ documents its
+ * test runner.
+ */
+const REPO_ROOT_IGNORED_DIRS = new Set([
+  // Test directories
   "test",
   "tests",
   "spec",
   "specs",
-  "fixtures",
-  "__fixtures__",
-  "__mocks__",
   // Internal/development directories
   "internal",
   "dev",
   "plans",
   ".plans",
-  // Build/generated directories
-  "node_modules",
-  "dist",
+  // Build directories
   "build",
-  "out",
-  ".next",
-  ".nuxt",
   // Other non-doc directories
   "examples", // Often contains code samples, not docs
   "benchmarks",
@@ -446,13 +458,16 @@ function findMarkdownFiles(
 
       if (entry.isDirectory()) {
         // Skip test, internal, and other non-doc directories
-        if (IGNORED_DIRS.has(entry.name.toLowerCase())) {
+        const dirName = entry.name.toLowerCase();
+        if (
+          IGNORED_DIRS.has(dirName) ||
+          (options.atRepoRoot && REPO_ROOT_IGNORED_DIRS.has(dirName))
+        ) {
           continue;
         }
 
         // Filter locale directories unless --lang all or specific lang matches
         if (isLocaleDir(entry.name)) {
-          const dirName = entry.name.toLowerCase();
           // Include if: all languages, matching lang, or default to English
           if (
             lang === "all" ||
