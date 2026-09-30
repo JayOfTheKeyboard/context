@@ -186,10 +186,23 @@ function astToMarkdown(nodes: Content[], source: string): string {
   return "";
 }
 
+/**
+ * React-style tags like <AppOnly> or <PagesOnly>, unless they sit inside a fenced
+ * block or an inline code span. There the same shape is a generic type
+ * (`List<String>`, `createTRPCClient<AppRouter>`) or a JSX example (`<App />`),
+ * and removing it breaks the code. Code is matched first so it is skipped whole.
+ * A fence opens and closes only on a line of its own, so a ``` inside a code line
+ * or a sentence does not pair up with the next block; an unclosed fence runs to
+ * the end, as it does in CommonMark.
+ */
+const MDX_TAG_OUTSIDE_CODE =
+  /^[ \t]*(`{3,}|~{3,})[^\n]*(?:[\s\S]*?\n[ \t]*\1[`~]*[ \t]*$|[\s\S]*)|`[^`\n]+`|(<\/?[A-Z][a-zA-Z]*\s*\/?>)/gm;
+
 /** Remove MDX-specific tags from content. */
 function cleanMdxContent(content: string): string {
-  // Remove React-style tags like <AppOnly>, <PagesOnly>, etc.
-  let cleaned = content.replace(/<\/?[A-Z][a-zA-Z]*\s*\/?>/g, "");
+  let cleaned = content.replace(MDX_TAG_OUTSIDE_CODE, (match, _fence, tag) =>
+    tag ? "" : match,
+  );
   // Remove empty lines created by tag removal
   cleaned = cleaned.replace(/\n{3,}/g, "\n\n");
   return cleaned.trim();
@@ -203,9 +216,12 @@ function createSection(
   content: string,
   partNum: number,
 ): DocSection | null {
-  const cleanedContent = cleanMdxContent(content);
-  const tokens = estimateTokens(cleanedContent);
-  if (!cleanedContent || tokens < MIN_CHUNK_TOKENS) {
+  // Not cleanMdxContent: Markdown is cleaned whole before it is split, and a second
+  // pass here would strip generics from a code block split across parts, whose
+  // opening fence is in an earlier part.
+  const trimmed = content.trim();
+  const tokens = estimateTokens(trimmed);
+  if (!trimmed || tokens < MIN_CHUNK_TOKENS) {
     return null;
   }
   return {
@@ -213,9 +229,9 @@ function createSection(
     docTitle,
     sectionTitle:
       partNum > 1 ? `${sectionTitle} (part ${partNum})` : sectionTitle,
-    content: cleanedContent,
+    content: trimmed,
     tokens,
-    hasCode: hasCodeBlock(cleanedContent),
+    hasCode: hasCodeBlock(trimmed),
   };
 }
 
