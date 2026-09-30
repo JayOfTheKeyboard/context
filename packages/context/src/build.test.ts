@@ -76,6 +76,29 @@ Use brackets for dynamic segments.
     expect(result.sections[2].sectionTitle).toBe("Dynamic Routes");
   });
 
+  it("keeps formatted and linked text in section titles", () => {
+    const source = `## Using [superjson](https://github.com/blitz-js/superjson)
+
+Serializes dates and maps.
+
+## **Should I use \`generate\` or \`push\`?**
+
+They are two different commands.
+
+## The *strict* option
+
+Turns on strict checks.
+`;
+
+    const result = parseMarkdown(source, "docs/faq.md");
+
+    expect(result.sections.map((s) => s.sectionTitle)).toEqual([
+      "Using superjson",
+      "Should I use generate or push?",
+      "The strict option",
+    ]);
+  });
+
   it("uses docTitle from frontmatter", () => {
     const source = `---
 title: My Guide

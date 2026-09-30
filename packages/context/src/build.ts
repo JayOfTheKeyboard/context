@@ -3,7 +3,7 @@
  * Parses markdown/MDX, AsciiDoc, and reStructuredText files and chunks them by section.
  */
 
-import type { Content, Heading, Root, Yaml } from "mdast";
+import type { Content, Heading, PhrasingContent, Root, Yaml } from "mdast";
 import remarkFrontmatter from "remark-frontmatter";
 import remarkParse from "remark-parse";
 import { unified } from "unified";
@@ -157,15 +157,14 @@ function extractFrontmatter(tree: Root): DocFrontmatter {
 
 /** Get heading text from AST node. */
 function getHeadingText(node: Heading): string {
-  let text = "";
-  for (const child of node.children) {
-    if (child.type === "text") {
-      text += child.value;
-    } else if (child.type === "inlineCode") {
-      text += child.value;
-    }
-  }
-  return text;
+  return node.children.map(getInlineText).join("");
+}
+
+/** Text of an inline node, including text nested in emphasis, strong and links. */
+function getInlineText(node: PhrasingContent): string {
+  if (node.type === "text" || node.type === "inlineCode") return node.value;
+  if ("children" in node) return node.children.map(getInlineText).join("");
+  return "";
 }
 
 /** Convert AST nodes back to markdown text (simplified). */

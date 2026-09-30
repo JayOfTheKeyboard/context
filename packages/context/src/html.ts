@@ -38,6 +38,23 @@ for (const tag of REMOVED_TAGS) {
   turndown.remove(tag);
 }
 
+// Permalink anchors in section headings: "¶" (Sphinx, systemd), "§" (rustdoc), "#"
+// (VuePress) or a zero-width space (Docusaurus). Section titles keep link text, so
+// without this they end in the symbol. Only <h2>, which becomes the section title:
+// anchors in other headings stay in the content as before. A rule, not remove():
+// the link rule would match <a> first.
+const PERMALINK_TEXT = /^[¶§#🔗]?$/u;
+turndown.addRule("sectionPermalink", {
+  filter: (node) =>
+    node.nodeName === "A" &&
+    (node.getAttribute("href") ?? "").startsWith("#") &&
+    PERMALINK_TEXT.test(
+      (node.textContent ?? "").replace(/\u200b/g, "").trim(),
+    ) &&
+    node.closest("h2") !== null,
+  replacement: () => "",
+});
+
 // DocBook emits bare <pre> elements; Turndown's code rule requires <pre><code>.
 // Preserve their whitespace and prevent Markdown escaping of unit-file examples.
 turndown.addRule("barePre", {
