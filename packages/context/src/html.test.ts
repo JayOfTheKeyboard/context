@@ -164,6 +164,29 @@ describe("Sphinx generated indexes", () => {
     expect(parseHtml(page(body), path).sections).toEqual([]);
   });
 
+  it.each([
+    [
+      "a guide with its own indextable",
+      "usage/tables.html",
+      `<h1>Tables</h1><p>Use an index table to list related terms.</p>
+      <table class="indextable"><tr><td>alpha</td><td>The first term.</td></tr></table>`,
+    ],
+    [
+      "a guide that shows Sphinx's index markup",
+      "development/templates.html",
+      `<h1>Index templates</h1><p>Sphinx writes each letter of the index as a table:</p>
+      <pre>&lt;table style="width: 100%" class="indextable"&gt;</pre>
+      <!-- <div class="genindex-jumpbox"> -->`,
+    ],
+    [
+      "a page named like an index without Sphinx's markup",
+      "reference/genindex.html",
+      `<h1>Glossary index</h1><p>Every term this project defines, with a short definition.</p>`,
+    ],
+  ])("still indexes %s", (_name, path, body) => {
+    expect(parseHtml(page(body), path).sections).toHaveLength(1);
+  });
+
   it("still indexes a page that has the same chrome", () => {
     const body = `<h1>errno — Standard errno system symbols</h1>
       <p>This module makes available standard <code>errno</code> system symbols.</p>`;

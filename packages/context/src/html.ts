@@ -88,16 +88,20 @@ turndown.addRule("barePre", {
 // Sphinx's generated indexes (genindex*.html, py-modindex.html and other domain
 // indexes) are alphabetical link catalogs, not documentation. Their list markup,
 // plain-text entries, module synopses and Sphinx's page chrome (plain divs that
-// turndown keeps) can hold them under the table-of-contents link ratio, so recognise
-// them by the markup Sphinx's index templates emit.
-const SPHINX_INDEX = /class="[^"]*\b(?:indextable|genindex-jumpbox)\b/;
+// turndown keeps) can hold them under the table-of-contents link ratio. Recognise
+// them by the file name Sphinx gives them and a tag its index templates emit; a guide
+// with only one of the two is still indexed.
+const SPHINX_INDEX_FILE =
+  /(?:^|\/)(?:genindex(?:-[^/]+)?|[a-z]+-[a-z]*index)\.html?$/;
+const SPHINX_INDEX_MARKUP =
+  /<(?:table\b[^>]*\bclass="(?:[^"]*\s)?indextable[\s"]|div\b[^>]*\bclass="genindex-jumpbox")/;
 
 /**
  * Parse an HTML file by converting to Markdown, then using the existing
  * Markdown parser for section extraction and chunking.
  */
 export function parseHtml(source: string, filePath: string): ParsedDoc {
-  if (SPHINX_INDEX.test(source)) {
+  if (SPHINX_INDEX_FILE.test(filePath) && SPHINX_INDEX_MARKUP.test(source)) {
     return { path: filePath, frontmatter: {}, sections: [] };
   }
   const markdown = turndown.turndown(source);
