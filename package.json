@@ -19,6 +19,9 @@
   },
   "packageManager": "pnpm@10.27.0",
   "pnpm": {
+    "overrides": {
+      "esbuild": "0.28.2"
+    },
     "onlyBuiltDependencies": [
       "esbuild"
     ]
