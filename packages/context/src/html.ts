@@ -90,11 +90,13 @@ turndown.addRule("barePre", {
 // plain-text entries, module synopses and Sphinx's page chrome (plain divs that
 // turndown keeps) can hold them under the table-of-contents link ratio. Recognise
 // them by the file name Sphinx gives them and a tag its index templates emit; a guide
-// with only one of the two is still indexed.
+// with only one of the two is still indexed. Domain indexes are named
+// <domain>-<index>.html, and the only built-in one is py-modindex. The markup
+// pattern never crosses a "<", so unclosed tags cannot make it rescan the page.
 const SPHINX_INDEX_FILE =
-  /(?:^|\/)(?:genindex(?:-[^/]+)?|[a-z]+-[a-z]*index)\.html?$/;
+  /(?:^|\/)(?:genindex(?:-[^/]+)?|[a-z]+-modindex)\.html?$/;
 const SPHINX_INDEX_MARKUP =
-  /<(?:table\b[^>]*\bclass="(?:[^"]*\s)?indextable[\s"]|div\b[^>]*\bclass="genindex-jumpbox")/;
+  /<(?:table\b[^<>]*\bclass="(?:[^"<>]*\s)?indextable[\s"]|div\b[^<>]*\bclass="genindex-jumpbox")/;
 
 /**
  * Parse an HTML file by converting to Markdown, then using the existing

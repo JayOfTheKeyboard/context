@@ -187,6 +187,19 @@ describe("Sphinx generated indexes", () => {
     expect(parseHtml(page(body), path).sections).toHaveLength(1);
   });
 
+  it("still indexes a guide named api-index.html with an indextable", () => {
+    const body = `<h1>API index</h1><p>Every public function, grouped by module.</p>
+      <table class="indextable"><tr><td><a href="api/io.html">io</a></td><td>Reading and writing files.</td></tr></table>`;
+    expect(parseHtml(page(body), "api-index.html").sections).toHaveLength(1);
+  });
+
+  it("checks malformed markup in linear time", () => {
+    const source = `<h1>Broken</h1>${"<table ".repeat(40_000)}`;
+    const start = performance.now();
+    parseHtml(source, "genindex.html");
+    expect(performance.now() - start).toBeLessThan(1_000);
+  });
+
   it("still indexes a page that has the same chrome", () => {
     const body = `<h1>errno — Standard errno system symbols</h1>
       <p>This module makes available standard <code>errno</code> system symbols.</p>`;
