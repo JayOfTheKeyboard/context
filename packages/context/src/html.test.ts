@@ -179,6 +179,12 @@ describe("Sphinx generated indexes", () => {
       <!-- <div class="genindex-jumpbox"> -->`,
     ],
     [
+      "a page named like an index that shows Sphinx's markup in a code sample",
+      "reference/genindex.html",
+      `<h1>Index markup</h1><p>Sphinx writes each letter of the index as a table:</p>
+      <pre>&lt;table style="width: 100%" class="indextable"&gt;</pre>`,
+    ],
+    [
       "a page named like an index without Sphinx's markup",
       "reference/genindex.html",
       `<h1>Glossary index</h1><p>Every term this project defines, with a short definition.</p>`,

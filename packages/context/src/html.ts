@@ -93,6 +93,9 @@ turndown.addRule("barePre", {
 // with only one of the two is still indexed. Domain indexes are named
 // <domain>-<index>.html, and the only built-in one is py-modindex. The markup
 // pattern never crosses a "<", so unclosed tags cannot make it rescan the page.
+// Markup shown in a code sample is escaped (&lt;table) and never matches. The
+// registry's zip reader skips genindex.html and py-modindex.html by name alone
+// (IGNORED_FILES in packages/registry/src/zip.ts); keep the two rules in step.
 const SPHINX_INDEX_FILE =
   /(?:^|\/)(?:genindex(?:-[^/]+)?|[a-z]+-modindex)\.html?$/;
 const SPHINX_INDEX_MARKUP =
