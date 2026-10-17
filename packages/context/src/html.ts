@@ -85,11 +85,30 @@ turndown.addRule("barePre", {
   },
 });
 
+// Sphinx's generated indexes (genindex*.html, py-modindex.html and other domain
+// indexes) are alphabetical link catalogs, not documentation. Their list markup,
+// plain-text entries, module synopses and Sphinx's page chrome (plain divs that
+// turndown keeps) can hold them under the table-of-contents link ratio. Recognise
+// them by the file name Sphinx gives them and a tag its index templates emit; a guide
+// with only one of the two is still indexed. Domain indexes are named
+// <domain>-<index>.html, and the only built-in one is py-modindex. The markup
+// pattern never crosses a "<", so unclosed tags cannot make it rescan the page.
+// Markup shown in a code sample is escaped (&lt;table) and never matches. The
+// registry's zip reader skips genindex.html and py-modindex.html by name alone
+// (IGNORED_FILES in packages/registry/src/zip.ts); keep the two rules in step.
+const SPHINX_INDEX_FILE =
+  /(?:^|\/)(?:genindex(?:-[^/]+)?|[a-z]+-modindex)\.html?$/;
+const SPHINX_INDEX_MARKUP =
+  /<(?:table\b[^<>]*\bclass="(?:[^"<>]*\s)?indextable[\s"]|div\b[^<>]*\bclass="genindex-jumpbox")/;
+
 /**
  * Parse an HTML file by converting to Markdown, then using the existing
  * Markdown parser for section extraction and chunking.
  */
 export function parseHtml(source: string, filePath: string): ParsedDoc {
+  if (SPHINX_INDEX_FILE.test(filePath) && SPHINX_INDEX_MARKUP.test(source)) {
+    return { path: filePath, frontmatter: {}, sections: [] };
+  }
   const markdown = turndown.turndown(source);
   return parseMarkdown(markdown, filePath);
 }
