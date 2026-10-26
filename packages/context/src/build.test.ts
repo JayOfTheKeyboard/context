@@ -284,7 +284,8 @@ const rest = createClient<AppRouter>();
 
   it("keeps generics in a code block split across section parts", () => {
     const filler = `const value = compute("${"x".repeat(300)}");`;
-    const code = Array.from({ length: 12 }, () => filler).join("\n\n");
+    // Over the 1200-token hard limit: a smaller block is kept whole.
+    const code = Array.from({ length: 20 }, () => filler).join("\n\n");
     const source = `## Setup\n\n\`\`\`ts\n${code}\n\nconst trpc = createTRPCClient<AppRouter>({});\n\`\`\`\n`;
 
     const { sections } = parseMarkdown(source, "docs/setup.md");
@@ -331,6 +332,105 @@ ${largeParagraph}
     for (const section of result.sections) {
       expect(section.tokens).toBeLessThanOrEqual(850); // Some buffer
     }
+  });
+
+  it("keeps a code block with blank lines whole when splitting a section", () => {
+    // Two paragraphs of ~250 tokens, then a ~520-token code block with blank lines
+    // in it, so the 800-token budget runs out partway through the block.
+    const prose = "This is a paragraph. ".repeat(50);
+    const comment = `// ${"x".repeat(1000)}`;
+    const code = [
+      "```js",
+      comment,
+      "fastify.register(require('@fastify/mongodb'), { forceClose: true })",
+      "",
+      comment,
+      "fastify.get('/user/:id', handler)",
+      "```",
+    ].join("\n");
+    const source = `## Mongo\n\n${prose}\n\n${prose}\n\n<Tip>\n\n${code}\n\n</Tip>\n\n${prose}\n`;
+
+    const { sections } = parseMarkdown(source, "docs/database.md");
+
+    expect(sections.length).toBeGreaterThan(1);
+    expect(sections.filter((s) => s.content.includes(code))).toHaveLength(1);
+    for (const { content } of sections) {
+      expect(content.match(/^```/gm)?.length ?? 0).toBeOneOf([0, 2]);
+      expect(content).not.toContain("Tip>");
+    }
+  });
+
+  // Three ~325-token pieces: over the 800-token budget, under the 1200 hard limit, so
+  // the block stays in one section unless a blank line inside it is taken as a break.
+  const piece = `// ${"x".repeat(1300)}`;
+  it.each([
+    ["a longer fence around a shorter one", "````md", "", "```", "````"],
+    ["a tilde fence around a backtick one", "~~~md", "", "```", "~~~"],
+    ["a fence around a line with an info string", "```md", "", "```js", "```"],
+    ["a tilde fence", "~~~js", "", "// step", "~~~"],
+    [
+      "a fence in a list item",
+      "-   Step one:\n    ```js",
+      "    ",
+      "    // step",
+      "    ```",
+    ],
+    ["a fence after a list marker", "1. ```bash", "   ", "   echo b", "   ```"],
+    [
+      "a fence shown indented inside a block",
+      "```md",
+      "",
+      "        ```",
+      "```",
+    ],
+    ["a fence shown tab-indented inside a block", "```md", "", "\t```", "```"],
+    ["a list item fence shown inside a block", "```md", "", "- ```", "```"],
+  ])("keeps %s whole when splitting", (_, open, indent, inner, close) => {
+    const block = [
+      open,
+      indent + piece,
+      inner,
+      "",
+      indent + piece,
+      "",
+      indent + piece,
+      close,
+    ].join("\n");
+
+    const { sections } = parseMarkdown(`## Example\n\n${block}\n`, "docs/a.md");
+
+    expect(sections.map((s) => s.content)).toEqual([block.trim()]);
+  });
+
+  it("keeps an indented code block in MDX tabs whole when splitting", () => {
+    const piece = `    // ${"x".repeat(1300)}`;
+    const source = `## Example\n\n<Tabs>\n  <Tab>\n    \`\`\`js\n${piece}\n\n${piece}\n\n${piece}\n    \`\`\`\n  </Tab>\n</Tabs>\n`;
+
+    const { sections } = parseMarkdown(source, "docs/a.mdx");
+
+    expect(sections).toHaveLength(1);
+    expect(sections[0]?.content.match(/^ *```/gm)).toHaveLength(2);
+  });
+
+  it("still splits after a fence that never closes", () => {
+    const prose = "This is a paragraph. ".repeat(40);
+    // The only bare fence after it is indented too far to close it.
+    const source = `## Install\n\nRun it:\n\`\`\`\n\n${prose}\n\n${prose}\n\n${prose}\n\n${prose}\n\n        \`\`\`\n`;
+
+    const { sections } = parseMarkdown(source, "docs/install.md");
+
+    expect(sections.length).toBeGreaterThan(1);
+    for (const { tokens } of sections) expect(tokens).toBeLessThanOrEqual(800);
+  });
+
+  it("still splits at a line that opens with inline code", () => {
+    const prose = "This is a paragraph. ".repeat(40);
+    const source = `## Install\n\n\`\`\`npm i\`\`\` installs it.\n\n${prose}\n\n${prose}\n\n${prose}\n\n${prose}\n\n\`\`\`js\nrun();\n\`\`\`\n`;
+
+    const { sections } = parseMarkdown(source, "docs/install.md");
+
+    expect(sections.length).toBeGreaterThan(1);
+    for (const { tokens } of sections) expect(tokens).toBeLessThanOrEqual(800);
   });
 
   it("handles content before first h2 as Introduction", () => {
@@ -553,6 +653,16 @@ Content in section two with enough text for the parser to include it.
     expect(result.sections[0].sectionTitle).toBe("Section One");
     expect(result.sections[0].content).toContain("subsection");
     expect(result.sections[1].sectionTitle).toBe("Section Two");
+  });
+
+  it("splits a long section with a ~ subheading at paragraphs", () => {
+    const prose = "This is a paragraph. ".repeat(40);
+    const source = `Title\n=====\n\nGuide\n-----\n\nInstall\n~~~~~~~\n\n${prose}\n\n${prose}\n\n${prose}\n\n${prose}\n\nUpdates\n~~~~~~~\n\n${prose}\n`;
+
+    const { sections } = parseRestructuredText(source, "docs/guide.rst");
+
+    expect(sections.length).toBeGreaterThan(1);
+    for (const { tokens } of sections) expect(tokens).toBeLessThanOrEqual(800);
   });
 
   it("falls back to filename when no title heading", () => {

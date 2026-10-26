@@ -250,12 +250,16 @@ const MDX_TAG_OUTSIDE_CODE =
 
 /** Remove MDX-specific tags from content. */
 function cleanMdxContent(content: string): string {
-  let cleaned = content.replace(MDX_TAG_OUTSIDE_CODE, (match, _fence, tag) =>
-    tag ? "" : match,
-  );
-  // Remove empty lines created by tag removal
-  cleaned = cleaned.replace(/\n{3,}/g, "\n\n");
-  return cleaned.trim();
+  return removeMdxTags(content).trim();
+}
+
+/** Remove MDX-specific tags, and the blank lines they leave, keeping indentation. */
+function removeMdxTags(content: string): string {
+  return content
+    .replace(MDX_TAG_OUTSIDE_CODE, (match, _fence, tag) => (tag ? "" : match))
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/^(?:[ \t]*\n)+/, "")
+    .trimEnd();
 }
 
 /** Helper to create a section with proper part numbering. */
@@ -285,14 +289,121 @@ function createSection(
   };
 }
 
-/** Split content at paragraph boundaries for large sections. */
+/** A fence line: indent, an optional list marker it opens behind, the run, the rest. */
+const FENCE_LINE = /^([ \t]*)((?:[-*+]|\d{1,9}[.)])[ \t]+)?(`{3,}|~{3,})(.*)$/;
+
+/**
+ * Split Markdown at blank lines, except inside fenced code blocks.
+ *
+ * Code often has blank lines in it, and cutting there gives each part half a block with
+ * one unpaired fence, so the rest of that part reads as code and the next part's code
+ * as prose. Fences follow CommonMark: an opening fence may carry an info string (with
+ * no backtick, for a backtick fence), and only a bare run of the same character, at
+ * least as long, closes it. Any indent opens one, and so does a list marker before it
+ * (`1. ```bash`), because fences in list items are indented; a closing fence has no list
+ * marker and sits at most 3 columns right of where its opening fence starts (a tab is 4),
+ * so a fence shown inside a code example does not close the block around it.
+ *
+ * A fence that never closes is read as text, so a stray one does not hold the rest of
+ * the section together; CommonMark runs it to the end instead. An oversized block is
+ * still cut by `splitOversizedContent`.
+ *
+ * The section is split before MDX tags are removed, because removing them can shift an
+ * indented fence to column 0 and leave its closing fence too far right to match. Each
+ * paragraph is cleaned on its own, which keeps generics in code safe because none holds
+ * part of a block.
+ *
+ * This reads the text rather than remark's tree on purpose: without MDX support remark
+ * reads a fence under a JSX line such as `<Section>` as part of an HTML block, which
+ * would leave most code in MDX docs unprotected.
+ */
+function splitMarkdownParagraphs(content: string): string[] {
+  const lines = content.split("\n");
+  const paragraphs: string[] = [];
+  const stray = new Set<number>();
+  const failed: { marker: string; column: number }[] = [];
+  let current: string[] = [];
+  let open: {
+    marker: string;
+    column: number;
+    line: number;
+    kept: number;
+  } | null = null;
+
+  // The longest bare run of each fence character after each line. A fence with no run
+  // as long after it can never close, so it is text from the start, in one pass; the
+  // rewind below is left for a fence whose only closers are indented too far.
+  const closers = lines.map(() => ({ "`": 0, "~": 0 }));
+  for (let i = lines.length - 2; i >= 0; i--) {
+    const after = { ...closers[i + 1] } as { "`": number; "~": number };
+    const [, , item, run, info = ""] =
+      FENCE_LINE.exec(lines[i + 1] ?? "") ?? [];
+    if (run && !item && !info.trim()) {
+      const char = run[0] as "`" | "~";
+      after[char] = Math.max(after[char], run.length);
+    }
+    closers[i] = after;
+  }
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i] ?? "";
+    const [, indent = "", item = "", marker, info = ""] =
+      (!stray.has(i) && FENCE_LINE.exec(line)) || [];
+    const column = indent.replace(/\t/g, "    ").length;
+
+    if (marker && !open) {
+      const at = column + item.length;
+      const closable =
+        (closers[i]?.[marker[0] as "`" | "~"] ?? 0) >= marker.length &&
+        // Its closers are among those of a fence that already failed to close.
+        !failed.some(
+          (f) =>
+            f.marker[0] === marker[0] &&
+            f.marker.length <= marker.length &&
+            f.column >= at,
+        );
+      if (closable && (marker[0] !== "`" || !info.includes("`"))) {
+        open = { marker, column: at, line: i, kept: current.length };
+      }
+    } else if (
+      marker &&
+      open &&
+      !item &&
+      marker.startsWith(open.marker) &&
+      !info.trim() &&
+      column <= open.column + 3
+    ) {
+      open = null;
+    }
+
+    if (!open && line === "") {
+      if (current.length) paragraphs.push(current.join("\n"));
+      current = [];
+    } else {
+      current.push(line);
+    }
+
+    // Unclosed: nothing was split while it was open, so rewind to it and go on as text.
+    if (open && i === lines.length - 1) {
+      failed.push(open);
+      stray.add(open.line);
+      current.length = open.kept;
+      i = open.line - 1;
+      open = null;
+    }
+  }
+  if (current.length) paragraphs.push(current.join("\n"));
+
+  return paragraphs.map(removeMdxTags).filter((paragraph) => paragraph.trim());
+}
+
+/** Pack paragraphs into sections for a large section. */
 function splitAtParagraphs(
-  content: string,
+  paragraphs: string[],
   docPath: string,
   docTitle: string,
   sectionTitle: string,
 ): DocSection[] {
-  const paragraphs = content.split(/\n\n+/);
   const sections: DocSection[] = [];
   let currentContent = "";
   let currentTokens = 0;
@@ -434,7 +545,7 @@ export function parseMarkdown(source: string, filePath: string): ParsedDoc {
           if (tokens > MAX_CHUNK_TOKENS) {
             sections.push(
               ...splitAtParagraphs(
-                cleanedContent,
+                splitMarkdownParagraphs(content),
                 filePath,
                 docTitle,
                 currentH2,
@@ -475,7 +586,12 @@ export function parseMarkdown(source: string, filePath: string): ParsedDoc {
       const tokens = estimateTokens(cleanedContent);
       if (tokens > MAX_CHUNK_TOKENS) {
         sections.push(
-          ...splitAtParagraphs(cleanedContent, filePath, docTitle, currentH2),
+          ...splitAtParagraphs(
+            splitMarkdownParagraphs(content),
+            filePath,
+            docTitle,
+            currentH2,
+          ),
         );
       } else if (tokens >= MIN_CHUNK_TOKENS) {
         sections.push({
@@ -765,7 +881,12 @@ function flushSection(
 
   if (tokens > MAX_CHUNK_TOKENS) {
     sections.push(
-      ...splitAtParagraphs(content, docPath, docTitle, sectionTitle),
+      ...splitAtParagraphs(
+        content.split(/\n\n+/),
+        docPath,
+        docTitle,
+        sectionTitle,
+      ),
     );
   } else {
     sections.push({
