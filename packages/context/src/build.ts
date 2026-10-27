@@ -270,8 +270,8 @@ function createSection(
   content: string,
   partNum: number,
 ): DocSection | null {
-  // Not cleanMdxContent: Markdown is cleaned whole before it is split, and a second
-  // pass here would strip generics from a code block split across parts, whose
+  // Not cleanMdxContent: Markdown paragraphs are cleaned before they are packed, and a
+  // second pass here would strip generics from a code block split across parts, whose
   // opening fence is in an earlier part.
   const trimmed = content.trim();
   const tokens = estimateTokens(trimmed);
@@ -292,6 +292,17 @@ function createSection(
 /** A fence line: indent, an optional list marker it opens behind, the run, the rest. */
 const FENCE_LINE = /^([ \t]*)((?:[-*+]|\d{1,9}[.)])[ \t]+)?(`{3,}|~{3,})(.*)$/;
 
+/** A line of MDX tags alone, which cleaning would leave blank. */
+const MDX_TAG_LINE = /^[ \t]*(?:<\/?[A-Z][a-zA-Z]*\s*\/?>[ \t]*)+$/;
+
+/** The column after `text` when it starts at column `from`, with tab stops every 4. */
+function columnAfter(text: string, from = 0): number {
+  let column = from;
+  for (const char of text)
+    column = char === "\t" ? column + 4 - (column % 4) : column + 1;
+  return column;
+}
+
 /**
  * Split Markdown at blank lines, except inside fenced code blocks.
  *
@@ -301,16 +312,17 @@ const FENCE_LINE = /^([ \t]*)((?:[-*+]|\d{1,9}[.)])[ \t]+)?(`{3,}|~{3,})(.*)$/;
  * no backtick, for a backtick fence), and only a bare run of the same character, at
  * least as long, closes it. Any indent opens one, and so does a list marker before it
  * (`1. ```bash`), because fences in list items are indented; a closing fence has no list
- * marker and sits at most 3 columns right of where its opening fence starts (a tab is 4),
- * so a fence shown inside a code example does not close the block around it.
+ * marker and sits at most 3 columns right of where its opening fence starts (tabs stop
+ * every 4 columns), so a fence shown inside a code example does not close the block around it.
  *
  * A fence that never closes is read as text, so a stray one does not hold the rest of
  * the section together; CommonMark runs it to the end instead. An oversized block is
  * still cut by `splitOversizedContent`.
  *
  * The section is split before MDX tags are removed, because removing them can shift an
- * indented fence to column 0 and leave its closing fence too far right to match. Each
- * paragraph is cleaned on its own, which keeps generics in code safe because none holds
+ * indented fence to column 0 and leave its closing fence too far right to match. A line
+ * of MDX tags alone outside a block still counts as a blank line, as it did when the
+ * tags were removed first. Each paragraph is cleaned on its own, which keeps generics in code safe because none holds
  * part of a block.
  *
  * This reads the text rather than remark's tree on purpose: without MDX support remark
@@ -349,10 +361,10 @@ function splitMarkdownParagraphs(content: string): string[] {
     const line = lines[i] ?? "";
     const [, indent = "", item = "", marker, info = ""] =
       (!stray.has(i) && FENCE_LINE.exec(line)) || [];
-    const column = indent.replace(/\t/g, "    ").length;
+    const column = columnAfter(indent);
 
     if (marker && !open) {
-      const at = column + item.length;
+      const at = columnAfter(item, column);
       const closable =
         (closers[i]?.[marker[0] as "`" | "~"] ?? 0) >= marker.length &&
         // Its closers are among those of a fence that already failed to close.
@@ -376,7 +388,8 @@ function splitMarkdownParagraphs(content: string): string[] {
       open = null;
     }
 
-    if (!open && line === "") {
+    // A line of MDX tags alone is a break too, as it was when tags were removed first.
+    if (!open && (line === "" || MDX_TAG_LINE.test(line))) {
       if (current.length) paragraphs.push(current.join("\n"));
       current = [];
     } else {

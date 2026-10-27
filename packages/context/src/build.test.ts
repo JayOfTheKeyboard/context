@@ -385,6 +385,13 @@ ${largeParagraph}
     ],
     ["a fence shown tab-indented inside a block", "```md", "", "\t```", "```"],
     ["a list item fence shown inside a block", "```md", "", "- ```", "```"],
+    [
+      "a fence closed at a tab stop after a list marker",
+      "1. ```bash",
+      "   ",
+      "   echo b",
+      "   \t```",
+    ],
   ])("keeps %s whole when splitting", (_, open, indent, inner, close) => {
     const block = [
       open,
@@ -410,6 +417,20 @@ ${largeParagraph}
 
     expect(sections).toHaveLength(1);
     expect(sections[0]?.content.match(/^ *```/gm)).toHaveLength(2);
+  });
+
+  it("still splits at lines that hold only MDX tags", () => {
+    const prose = "This is a paragraph. ".repeat(40);
+    const source = `## Notes\n\n${prose}\n<Tip>\n${prose}\n</Tip>\n${prose}\n<Note>\n${prose}\n</Note>\n${prose}\n`;
+
+    const { sections } = parseMarkdown(source, "docs/notes.mdx");
+
+    expect(sections.length).toBeGreaterThan(1);
+    for (const { content, tokens } of sections) {
+      expect(tokens).toBeLessThanOrEqual(800);
+      expect(content).not.toContain("Tip>");
+      expect(content).not.toContain("Note>");
+    }
   });
 
   it("still splits after a fence that never closes", () => {
