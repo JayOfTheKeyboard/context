@@ -125,6 +125,38 @@ This section has sufficient content for the parser to include it in the output.
     expect(result.sections[0].docTitle).toBe("my-feature");
   });
 
+  it("uses the document's only h1 as docTitle when there is no frontmatter title", () => {
+    const body = `## Creating jobs
+
+The send() function creates a job and returns its id once it is stored.
+`;
+
+    const single = parseMarkdown(
+      `# The [Jobs](#jobs) <Badge text="v10" /> API {#jobs-api}\n\n${body}`,
+      "docs/api/jobs.md",
+    );
+    const several = parseMarkdown(
+      `# Jobs\n\n${body}\n# Workers\n\n${body}`,
+      "docs/llms-full.md",
+    );
+    const frontmatter = parseMarkdown(
+      `---\ntitle: Job API\n---\n\n# Jobs\n\n${body}`,
+      "docs/api/jobs.md",
+    );
+
+    expect(single.sections[0].docTitle).toBe("The Jobs API");
+    for (const [h1, title] of [
+      ["# Preface {.unnumbered}", "Preface"],
+      ["# Blocks: `{#each}`", "Blocks: {#each}"],
+    ]) {
+      expect(
+        parseMarkdown(`${h1}\n\n${body}`, "docs/a.qmd").sections[0].docTitle,
+      ).toBe(title);
+    }
+    expect(several.sections[0].docTitle).toBe("llms-full");
+    expect(frontmatter.sections[0].docTitle).toBe("Job API");
+  });
+
   it("detects code blocks", () => {
     const source = `---
 title: Code Example
@@ -642,6 +674,33 @@ describe("parseHtml", () => {
     expect(result.sections).toHaveLength(2);
     expect(result.sections[0].sectionTitle).toBe("Authentication");
     expect(result.sections[1].sectionTitle).toBe("Endpoints");
+    expect(result.sections[0].docTitle).toBe("API Reference");
+  });
+
+  it.each([
+    ["Sphinx", '<a class="headerlink" href="#dictionary-objects">¶</a>'],
+    [
+      "Docusaurus",
+      '<a class="hash-link" href="#dictionary-objects">\u200b</a>',
+    ],
+  ])("drops the %s permalink from an h1 doc title only", (_, anchor) => {
+    const { sections } = parseHtml(
+      `<p>Python 3.14 documentation, C API reference manual.</p><h1>Dictionary Objects${anchor}</h1><h2>Lookup</h2><p>PyDict_GetItem returns a borrowed reference.</p>`,
+      "c-api/dict.html",
+    );
+
+    expect(sections[0].docTitle).toBe("Dictionary Objects");
+    // The h1 is part of the Introduction here, whose content is left as it was.
+    expect(sections[0].content).toContain("](#dictionary-objects)");
+  });
+
+  it("falls back to the file name without .html when there is no h1", () => {
+    const { sections } = parseHtml(
+      "<h2>Lookup</h2><p>PyDict_GetItem returns a borrowed reference.</p>",
+      "c-api/dict.html",
+    );
+
+    expect(sections[0].docTitle).toBe("dict");
   });
 
   it("strips script, style, nav, and footer elements", () => {

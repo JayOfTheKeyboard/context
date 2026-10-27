@@ -8,7 +8,7 @@ import remarkFrontmatter from "remark-frontmatter";
 import remarkParse from "remark-parse";
 import { unified } from "unified";
 import { parse as parseYaml } from "yaml";
-import { parseHtml } from "./html.js";
+import { isPermalinkText, parseHtml } from "./html.js";
 
 export interface DocFrontmatter {
   title?: string;
@@ -163,6 +163,16 @@ function extractFrontmatter(tree: Root): DocFrontmatter {
   }
 }
 
+/** A document's title when it names none itself: its file name, without extension. */
+export function fileTitle(filePath: string): string {
+  return (
+    filePath
+      .split("/")
+      .pop()
+      ?.replace(/\.(md|mdx|mdoc|qmd|rmd|adoc|rst|html?)$/, "") || "Untitled"
+  );
+}
+
 /** Get heading text from AST node. */
 function getHeadingText(node: Heading): string {
   return node.children.map(getInlineText).join("");
@@ -173,6 +183,39 @@ function getInlineText(node: PhrasingContent): string {
   if (node.type === "text" || node.type === "inlineCode") return node.value;
   if ("children" in node) return node.children.map(getInlineText).join("");
   return "";
+}
+
+/**
+ * A trailing attribute block: `{#id}` sets a heading's anchor in Docusaurus and
+ * VitePress, and Pandoc (Quarto, R Markdown) also takes `{.class}` and `{-}`.
+ */
+const HEADING_ATTRIBUTES = /\s*\{[#.-][^{}]*\}\s*$/;
+
+/**
+ * A document's title from its h1, without the permalink anchor HTML docs put in every
+ * heading or a trailing attribute block. The anchor is dropped from the title only: the
+ * h1 can sit inside the "Introduction" content, which stays as it was.
+ */
+function getTitleText(node: Heading): string {
+  const children = node.children.filter(
+    (child) =>
+      !(
+        child.type === "link" &&
+        child.url.startsWith("#") &&
+        isPermalinkText(getInlineText(child))
+      ),
+  );
+  // Only from plain text: in inline code, `{#each}` is what the title is about.
+  const last = children.at(-1);
+  if (last?.type === "text") {
+    children[children.length - 1] = {
+      ...last,
+      value: last.value.replace(HEADING_ATTRIBUTES, ""),
+    };
+  }
+  return getHeadingText({ ...node, children })
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 /** Convert AST nodes back to markdown text (simplified). */
@@ -339,13 +382,16 @@ export function parseMarkdown(source: string, filePath: string): ParsedDoc {
 
   const tree = processor.parse(source) as Root;
   const frontmatter = extractFrontmatter(tree);
+  // A single h1 is the page's title, as `= Title` is for AsciiDoc and the top heading
+  // is for reStructuredText. Several h1s are a concatenation (an llms-full.txt), where
+  // the first page's title would mislabel the rest.
+  const h1s = tree.children.filter(
+    (n): n is Heading => n.type === "heading" && n.depth === 1,
+  );
   const docTitle =
     frontmatter.title ||
-    filePath
-      .split("/")
-      .pop()
-      ?.replace(/\.(md|mdx|mdoc|qmd|rmd|adoc|rst)$/, "") ||
-    "Untitled";
+    (h1s.length === 1 && h1s[0] ? getTitleText(h1s[0]) : "") ||
+    fileTitle(filePath);
 
   // Remove frontmatter and JSX import statements from source for extraction
   let cleanSource = source;
@@ -483,13 +529,7 @@ export function parseAsciidoc(source: string, filePath: string): ParsedDoc {
   // Extract document title from `= Title` (level-0 heading) or attributes
   const titleMatch = source.match(/^= (.+)$/m);
   const docTitle =
-    attrs.title ||
-    titleMatch?.[1]?.trim() ||
-    filePath
-      .split("/")
-      .pop()
-      ?.replace(/\.adoc$/, "") ||
-    "Untitled";
+    attrs.title || titleMatch?.[1]?.trim() || fileTitle(filePath);
 
   const lines = source.split("\n");
   const sections: DocSection[] = [];
@@ -631,11 +671,7 @@ export function parseRestructuredText(
   charOrder.length = 0;
 
   if (!docTitle) {
-    docTitle =
-      filePath
-        .split("/")
-        .pop()
-        ?.replace(/\.rst$/, "") || "Untitled";
+    docTitle = fileTitle(filePath);
   }
 
   // Second pass: extract sections

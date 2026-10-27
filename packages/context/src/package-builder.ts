@@ -4,7 +4,7 @@
 
 import { createHash } from "node:crypto";
 import { dirname } from "node:path";
-import { type DocSection, parseDocument } from "./build.js";
+import { type DocSection, fileTitle, parseDocument } from "./build.js";
 import { openDatabase } from "./database.js";
 import { REMOVED_TAGS } from "./html.js";
 import { createPackageTempFile } from "./package-file.js";
@@ -563,7 +563,13 @@ function parseChunks(file: MarkdownFile): DocSection[] {
     }
   }
 
-  return sections;
+  // A file's sections share one title. A page's h1 is only in the chunk that opens it,
+  // so when a split file's chunks disagree — a continuation fell back to the file name,
+  // or a concatenation (an llms-full.txt) has a page per chunk — the file name names
+  // them all. A frontmatter title reaches every chunk, so it is kept.
+  const titles = new Set(sections.map((s) => s.docTitle));
+  const docTitle = titles.size > 1 ? fileTitle(file.path) : undefined;
+  return docTitle ? sections.map((s) => ({ ...s, docTitle })) : sections;
 }
 
 /**
