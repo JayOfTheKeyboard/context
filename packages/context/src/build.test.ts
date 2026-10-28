@@ -433,6 +433,19 @@ ${largeParagraph}
     }
   });
 
+  it("removes MDX tags inside a paragraph when splitting", () => {
+    const prose = "This is a paragraph. ".repeat(40);
+    const source = `## Notes\n\n${prose}\n\n<Tip>Run it twice.</Tip>\n\n${prose}\n\n${prose}\n\n${prose}\n`;
+
+    const { sections } = parseMarkdown(source, "docs/notes.mdx");
+
+    expect(sections.length).toBeGreaterThan(1);
+    expect(sections.map((s) => s.content).join("\n")).toContain(
+      "Run it twice.",
+    );
+    for (const { content } of sections) expect(content).not.toContain("Tip>");
+  });
+
   it("still splits after a fence that never closes", () => {
     const prose = "This is a paragraph. ".repeat(40);
     // The only bare fence after it is indented too far to close it.
@@ -452,6 +465,52 @@ ${largeParagraph}
 
     expect(sections.length).toBeGreaterThan(1);
     for (const { tokens } of sections) expect(tokens).toBeLessThanOrEqual(800);
+  });
+
+  it.each([
+    ["a tilde fence", "~~~sh\nnpm i\n~~~", true],
+    ["a fence in a blockquote", "> ```sh\n> npm i\n> ```", true],
+    [
+      "inline code in triple backticks",
+      "```npm i``` installs it, and ```npm t``` tests it.",
+      false,
+    ],
+  ])("sets hasCode for %s", (_, body, hasCode) => {
+    const source = `## Install\n\nInstall it first.\n\n${body}\n`;
+
+    const { sections } = parseMarkdown(source, "docs/install.md");
+
+    expect(sections[0]?.hasCode).toBe(hasCode);
+  });
+
+  it("sets hasCode on each part of a code block cut at the hard limit", () => {
+    const filler = `const value = compute("${"x".repeat(300)}");`;
+    const code = Array.from({ length: 20 }, () => filler).join("\n\n");
+    const source = `## Setup\n\n\`\`\`ts\n${code}\n\`\`\`\n`;
+
+    const { sections } = parseMarkdown(source, "docs/setup.md");
+
+    expect(sections.length).toBeGreaterThan(1);
+    for (const { hasCode } of sections) expect(hasCode).toBe(true);
+  });
+
+  // Over the 1200-token hard limit only with the prose on the line before it, so the
+  // block is kept whole only if the cut is made at its own fences.
+  const row = (i: number) => `  value${i}: "${"x".repeat(200)}",`;
+  const rows = Array.from({ length: 12 }, (_, i) => row(i)).join("\n");
+  it.each([
+    ["a tilde block", `~~~js\nconst config = {\n${rows}\n};\n~~~`],
+    [
+      "a block with fences in its comments",
+      `\`\`\`ts\n/**\n * \`\`\`js\n * load();\n * \`\`\`\n */\nconst config = {\n${rows}\n};\n\`\`\``,
+    ],
+  ])("cuts a long paragraph at the edges of %s", (_, block) => {
+    const prose = "This is a paragraph. ".repeat(130);
+    const source = `## Example\n\n${prose}\n${block}\n`;
+
+    const { sections } = parseMarkdown(source, "docs/a.md");
+
+    expect(sections.map((s) => s.content)).toContain(block);
   });
 
   it("handles content before first h2 as Introduction", () => {
@@ -544,6 +603,14 @@ Use the library by importing it into your project.
     for (const section of sections) {
       expect(section.content).toContain("List<String> names");
     }
+  });
+
+  it("sets hasCode for a backtick fence", () => {
+    const source = "= Guide\n\n== Usage\n\nRun it:\n\n```ruby\nputs 1\n```\n";
+
+    const { sections } = parseAsciidoc(source, "docs/guide.adoc");
+
+    expect(sections[0]?.hasCode).toBe(true);
   });
 
   it("extracts attributes as frontmatter", () => {
@@ -684,6 +751,20 @@ Content in section two with enough text for the parser to include it.
 
     expect(sections.length).toBeGreaterThan(1);
     for (const { tokens } of sections) expect(tokens).toBeLessThanOrEqual(800);
+  });
+
+  it("does not read ~ subheading underlines as code", () => {
+    const prose = "This is a paragraph. ".repeat(40);
+    const body = (text: string) =>
+      `Title\n=====\n\nGuide\n-----\n\nInstall\n~~~~~~~\n\n${text}\n\nUpdates\n~~~~~~~\n\n${text}\n`;
+
+    const short = parseRestructuredText(body("Use pip."), "docs/a.rst");
+    const long = parseRestructuredText(body(`${prose}\n\n${prose}`), "b.rst");
+
+    expect(long.sections.length).toBeGreaterThan(1);
+    for (const { hasCode } of [...short.sections, ...long.sections]) {
+      expect(hasCode).toBe(false);
+    }
   });
 
   it("falls back to filename when no title heading", () => {
